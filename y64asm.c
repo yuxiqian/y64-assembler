@@ -96,7 +96,7 @@ symbol_t* symtab = NULL;
  *     NULL: not exist
  */
 symbol_t* find_symbol(char* name) {
-    struct symbol_t node = symtab;
+    symbol_t* node = symtab;
     while (node != NULL) {
         if (strcmp(node->name, name) == 0) {
             return node;
@@ -104,6 +104,16 @@ symbol_t* find_symbol(char* name) {
         node = node->next;
     }
     return NULL;
+}
+
+symbol_t* find_last_symbol() {
+    symbol_t* node = symtab;
+    symbol_t* last = NULL;
+    while (node != NULL) {
+        last = node;
+        node = node->next;
+    }
+    return last;
 }
 
 /*
@@ -120,34 +130,48 @@ int add_symbol(char* name) {
     if (find_symbol(name) != NULL) {
         return -1;
     }
-    symtab[];
-    /* create new symbol_t (don't forget to free it)*/
-    struct symbol_t* mem_add = malloc(sizeof(struct symbol_t));
-    struct symbol_t  newsym  = { name = name;
-    addr                     = mem_add;
-    next                     = NULL;
-}
-/* add the new symbol_t to symbol table */
+    // symtab[];
 
-return 0;
+    symbol_t* mem_add        = malloc(sizeof(symbol_t));
+    symbol_t  new_sym        = { name, ( int64_t )mem_add, NULL };
+    find_last_symbol()->next = mem_add;
+    /* create new symbol_t (don't forget to free it)*/
+    *mem_add = new_sym;
+    /* add the new symbol_t to symbol table */
+    return 0;
 }
 
 /* relocation table (don't forget to init and finit it) */
 reloc_t* reltab = NULL;
 
+reloc_t* find_last_reloc() {
+    reloc_t* node = reltab;
+    reloc_t* last = NULL;
+    while (node != NULL) {
+        last = node;
+        node = node->next;
+    }
+    return last;
+}
+
 /*
  * add_reloc: add a new relocation to the relocation table
  * args
- *     name: the name of symbol
+ *     name: the name of reloc
  *
  * return
  *     0: success
- *     -1: error, the symbol has exist
+ *     -1: error, the reloc has exist
  */
-void add_reloc(char* name, bin_t* bin) {
-    /* create new reloc_t (don't forget to free it)*/
+int add_reloc(char* name, bin_t* bin) {
+    reloc_t* mem_add   = malloc(sizeof(reloc_t));
+    reloc_t  new_reloc = { bin, name, NULL };
 
-    /* add the new reloc_t to relocation table */
+    find_last_reloc()->next = mem_add;
+    /* create new reloc_t (don't forget to free it)*/
+    *mem_add = new_reloc;
+    /* add the new reloc_t to symbol table */
+    return 0;
 }
 
 /* macro for parsing y64 assembly code */
@@ -182,9 +206,19 @@ typedef enum { PARSE_ERR = -1, PARSE_REG, PARSE_DIGIT, PARSE_SYMBOL, PARSE_MEM, 
  */
 parse_t parse_instr(char** ptr, instr_t** inst) {
     /* skip the blank */
-
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
     /* find_instr and check end */
-
+    int i, len;
+    for (i = 0; i < 34; ++i) {
+        len = strlen(instr_set[i].name);
+        if (strncmp(*ptr, instr_set[i].name, len) == 0) {
+            *inst = &instr_set[i];
+            *ptr += len;
+            return PARSE_INSTR;
+        }
+    }
     /* set 'ptr' and 'inst' */
 
     return PARSE_ERR;
@@ -201,8 +235,14 @@ parse_t parse_instr(char** ptr, instr_t** inst) {
  */
 parse_t parse_delim(char** ptr, char delim) {
     /* skip the blank and check */
-
-    /* set 'ptr' */
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
+    if (**ptr == ',') {
+        /* set 'ptr' */
+        ++*ptr;
+        return PARSE_DELIM;
+    }
 
     return PARSE_ERR;
 }
@@ -220,10 +260,20 @@ parse_t parse_delim(char** ptr, char delim) {
  */
 parse_t parse_reg(char** ptr, regid_t* regid) {
     /* skip the blank and check */
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
 
     /* find register */
-
-    /* set 'ptr' and 'regid' */
+    int i;
+    for (i = 0; i < 15; ++i) {
+        if (strncmp(*ptr, reg_table[i].name, reg_table[i].namelen) == 0) {
+            /* set 'ptr' and 'regid' */
+            *regid = reg_table[i].id;
+            *ptr += reg_table[i].namelen;
+            return PARSE_REG;
+        }
+    }
 
     return PARSE_ERR;
 }
@@ -241,7 +291,17 @@ parse_t parse_reg(char** ptr, regid_t* regid) {
  */
 parse_t parse_symbol(char** ptr, char** name) {
     /* skip the blank and check */
-
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
+    char buf[MAX_INSLEN];
+    sscanf(*ptr, "%s", buf);
+    symbol_t* find_sym = find_symbol(buf);
+    if (find_sym != NULL) {
+        strncpy(*name, find_sym->name, MAX_INSLEN);
+        *ptr += strlen(find_sym->name);
+        return PARSE_SYMBOL;
+    }
     /* allocate name and copy to it */
 
     /* set 'ptr' and 'name' */
@@ -262,12 +322,26 @@ parse_t parse_symbol(char** ptr, char** name) {
  */
 parse_t parse_digit(char** ptr, long* value) {
     /* skip the blank and check */
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
 
+    char* end_ptr = *ptr;
+    while (*end_ptr != ' ') {
+        ++end_ptr;
+    }
+    --end_ptr;
+    char* org_end_ptr = end_ptr;
     /* calculate the digit, (NOTE: see strtoll()) */
-
-    /* set 'ptr' and 'value' */
-
-    return PARSE_ERR;
+    *value = strtoll(*ptr, &end_ptr, 16);
+    if (end_ptr != org_end_ptr) {
+        /* set 'ptr' and 'value' */
+        return PARSE_ERR;
+    }
+    else {
+        *ptr = end_ptr;
+        return PARSE_DIGIT;
+    }
 }
 
 /*
@@ -288,11 +362,37 @@ parse_t parse_digit(char** ptr, long* value) {
  */
 parse_t parse_imm(char** ptr, char** name, long* value) {
     /* skip the blank and check */
-
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
     /* if IS_IMM, then parse the digit */
+    char* end_ptr = *ptr;
+    while (*end_ptr != ' ') {
+        ++end_ptr;
+    }
+    --end_ptr;
+    char* org_end_ptr = end_ptr;
+    /* calculate the digit, (NOTE: see strtoll()) */
+    *value = strtoll(*ptr, &end_ptr, 16);
+    if (end_ptr != org_end_ptr) {
+        /* set 'ptr' and 'value' */
+        goto IS_LETTER;
+    }
+    else {
+        *ptr = end_ptr;
+        return PARSE_DIGIT;
+    }
 
     /* if IS_LETTER, then parse the symbol */
-
+IS_LETTER:
+    char buf[MAX_INSLEN];
+    sscanf(*ptr, "%s", buf);
+    symbol_t* find_sym = find_symbol(buf);
+    if (find_sym != NULL) {
+        *value = find_sym->value;
+        *ptr += strlen(find_sym->name);
+        return PARSE_SYMBOL;
+    }
     /* set 'ptr' and 'name' or 'value' */
 
     return PARSE_ERR;
@@ -313,6 +413,9 @@ parse_t parse_imm(char** ptr, char** name, long* value) {
  */
 parse_t parse_mem(char** ptr, long* value, regid_t* regid) {
     /* skip the blank and check */
+    while (**ptr == ' ') {
+        ++*ptr;
+    }
 
     /* calculate the digit and register, (ex: (%rbp) or 8(%rbp)) */
 
