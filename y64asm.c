@@ -26,7 +26,7 @@ int     lineno    = 0;
     } while (0);
 
 #define log(_s, _a...)                \
-    if (TRUE) {                       \
+    if (1) {                          \
         do {                          \
             if (lineno < 0)           \
                 printf("[--]: "_s     \
@@ -390,15 +390,16 @@ type_t parse_line(line_t* line) {
     }
     /* skip blank and check IS_END */
     char* end = start;
-    while (*end != '#' && *end != '\n') {
+    while (*end != '#' && *end != '\0') {
         ++end;
     }
 
     /* is a comment ? */
     char* ins_word   = calloc(MAX_INSLEN, sizeof(char));
     char* label_word = calloc(MAX_INSLEN, sizeof(char));
+    log("going to copy %ld\n", end - start);
     strncpy(ins_word, start, end - start);
-    // printf("Eaten %s\n", ins_word);
+    log("Eaten %s\n", ins_word);
 
     if (strlen(ins_word) == 0) {
         line->type = TYPE_COMM;
@@ -412,7 +413,6 @@ type_t parse_line(line_t* line) {
         sscanf(org_ins_word, "%s:%s", label_word, ins_word);
         log("Label here: %s\nInstruction Here: %s", label_word, ins_word);
     }
-
     free(org_ins_word);
 
     bin_t   binary;
@@ -421,11 +421,10 @@ type_t parse_line(line_t* line) {
     for (i = 0; i < 34; ++i) {
         if (strncmp(instr_set[i].name, ins_word, instr_set[i].len) == 0) {
             instr = instr_set[i];
-            // printf("Matched %d\n", i);
+            log("Matched %d\n", i);
             break;
         }
     }
-
     if (instr.name == NULL) {
         line->type = TYPE_ERR;
         goto _CLEAN_UP;
