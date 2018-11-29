@@ -9,7 +9,7 @@ line_t* line_head = NULL;
 line_t* line_tail = NULL;
 int     lineno    = 0;
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define err_print(_s, _a...)       \
     do {                           \
