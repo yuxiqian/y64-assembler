@@ -113,6 +113,13 @@ symbol_t* symtab = NULL;
  *     NULL: not exist
  */
 symbol_t* find_symbol(char* name) {
+    symbol_t* node = symtab;
+    while (node->name != NULL) {
+        if (strcmp(node->name, name) == 0) {
+            return node;
+        }
+        node = node->next;
+    }
     return NULL;
 }
 
@@ -125,12 +132,33 @@ symbol_t* find_symbol(char* name) {
  *     0: success
  *     -1: error, the symbol has exist
  */
-int add_symbol(char* name) {
+int add_symbol(char* name, int64_t addr) {
     /* check duplicate */
+    if (find_symbol(name) != NULL) {
+        return -1;
+        // duplicate symbol here
+    }
 
     /* create new symbol_t (don't forget to free it)*/
+    symbol_t* new_sym  = calloc(1, sizeof(symbol_t));
+    char*     name_buf = calloc(MAX_INSLEN, sizeof(char));
+    strcpy(name_buf, name);
+    new_sym->name = name_buf;
+    new_sym->next = NULL;
+    new_sym->addr = addr;
 
     /* add the new symbol_t to symbol table */
+    symbol_t* node = symtab;
+    if (node->name == NULL) {
+        symtab = new_sym;
+        return 0;
+    }
+
+    while (node->next->name != NULL) {
+        node = node->next;
+    }
+
+    node->next = new_sym;
 
     return 0;
 }
@@ -148,9 +176,12 @@ reloc_t* reltab = NULL;
  *     -1: error, the symbol has exist
  */
 void add_reloc(char* name, bin_t* bin) {
-    /* create new reloc_t (don't forget to free it)*/
 
-    /* add the new reloc_t to relocation table */
+    if (find_symbol(name) != NULL) {
+        // already exist
+
+        return;
+    }
 }
 
 /* macro for parsing y64 assembly code */
@@ -297,14 +328,13 @@ parse_t parse_imm(char** ptr, char** name, long* value) {
     }
     /* if IS_LETTER, then parse the symbol */
     if (IS_LETTER(*ptr)) {
-        *name       = calloc(MAX_INSLEN, sizeof(char));
-        int str_len = 0;
-        while (**ptr != ' ' && **ptr != ',') {
-            name[str_len++] = **ptr;
-            ++(*ptr);
+        log("going to find symbol %s\n", *ptr);
+        symbol_t* sym = find_symbol(*ptr);
+        if (sym->name != NULL) {
+            log("found symbol %s at %ld\n", sym->name, sym->addr);
+            *value = sym->addr;
         }
-        symbol_t* sym;
-        find_symbol(*name);
+        return PARSE_SYMBOL;
     }
     /* set 'ptr' and 'name' or 'value' */
 
@@ -418,15 +448,31 @@ type_t parse_line(line_t* line) {
     }
     line->type = TYPE_INS;
 
-    char* org_ins_word = calloc(MAX_INSLEN, sizeof(char));
-    strcpy(org_ins_word, ins_word);
-    if (sscanf(org_ins_word, "%*s:%*s") == 2) {
-        sscanf(org_ins_word, "%s:%s", label_word, ins_word);
-        log("Label here: %s\nInstruction Here: %s", label_word, ins_word);
-    }
-    free(org_ins_word);
+    char* org_ins_word = ins_word;
+    char *separator    = NULL, *tail;
 
-    bin_t   binary;
+    bin_t binary;
+
+    while (*org_ins_word != '\0' && *org_ins_word != '\t') {
+
+        if (*org_ins_word == ':') {
+            separator = org_ins_word;
+            break;
+        }
+        ++org_ins_word;
+    }
+
+    if (separator != NULL) {
+        strncpy(label_word, ins_word, separator - ins_word);
+        log("A label here! label = %s\n", label_word);
+        add_symbol(label_word, vmaddr);
+        log("add symbol %s at %ld\n", label_word, vmaddr);
+        line->y64bin = binary;
+        binary.addr  = vmaddr;
+        line->type   = TYPE_COMM;
+        goto _CLEAN_UP;
+    }
+
     instr_t instr = { NULL, 1, 0, 0 };
     int     i;
     for (i = 0; i < 34; ++i) {
@@ -436,6 +482,7 @@ type_t parse_line(line_t* line) {
             break;
         }
     }
+
     if (instr.name == NULL) {
         line->type = TYPE_ERR;
         goto _CLEAN_UP;
@@ -633,7 +680,37 @@ type_t parse_line(line_t* line) {
         // forcefully reinterprete the pointer
         *( long* )(binary.codes + 2) = imm_num;
         line->type                   = TYPE_INS;
-    }
+    } break;
+
+        // parameter is an immediate number style:
+
+    case 16:  // jmp
+    case 17:  // jle
+    case 18:  // jl
+    case 19:  // je
+    case 20:  // jne
+    case 21:  // jge
+    case 22:  // jg
+    case 23:  // call
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+        char* name;
+        long  imm_value = 0;
+
+        if (parse_imm(&funcode, &name, &imm_value) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        binary.codes[0] = instr.code;
+
+        // forcefully reinterprete the pointer
+        *( long* )(binary.codes + 1) = imm_value;
+        line->type                   = TYPE_INS;
+    } break;
     }
 
     line->y64bin = binary;
