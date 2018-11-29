@@ -292,7 +292,7 @@ parse_t parse_imm(char** ptr, char** name, long* value) {
         ++(*ptr);
         log("Gotta string like integer: %s\n", *ptr);
 
-        *value = strtoll(*ptr, ptr, 0);
+        *value = strtol(*ptr, ptr, 0);
         return PARSE_DIGIT;
     }
     /* if IS_LETTER, then parse the symbol */
@@ -548,6 +548,48 @@ type_t parse_line(line_t* line) {
 
         // forcefully reinterprete the pointer
         *( long* )(binary.codes + 2) = imm_value;
+        line->type                   = TYPE_INS;
+    } break;
+
+    case 10:  // rmmovq
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        regid_t register_a, register_b;
+        long    imm_num = 0;
+
+        if (parse_reg(&funcode, &register_a) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        if (parse_delim(&funcode) != PARSE_DELIM) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        if (sscanf(funcode, "%ld(%s)", &imm_num, global_buf) == 2) {
+            // type 233(%register)
+            log("match type num(reg)\n");
+            imm_num = strtol(funcode, &funcode, 0);
+        }
+
+        funcode += 1;  // skip '('
+        if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        funcode += 1;  // skip ')'
+
+        binary.codes[0] = instr.code;
+        binary.codes[1] = HPACK(register_a, register_b);
+
+        // forcefully reinterprete the pointer
+        *( long* )(binary.codes + 2) = imm_num;
         line->type                   = TYPE_INS;
     } break;
     }
