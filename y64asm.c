@@ -592,6 +592,48 @@ type_t parse_line(line_t* line) {
         *( long* )(binary.codes + 2) = imm_num;
         line->type                   = TYPE_INS;
     } break;
+
+    case 11:  // mrmovq
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        regid_t register_a, register_b;
+        long    imm_num = 0;
+
+        if (sscanf(funcode, "%ld(%s)", &imm_num, global_buf) == 2) {
+            // type 233(%register)
+            log("match type num(reg)\n");
+            imm_num = strtol(funcode, &funcode, 0);
+        }
+
+        funcode += 1;  // skip '('
+        if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        funcode += 1;  // skip ')'
+
+        if (parse_delim(&funcode) != PARSE_DELIM) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        if (parse_reg(&funcode, &register_a) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        binary.codes[0] = instr.code;
+        binary.codes[1] = HPACK(register_a, register_b);
+
+        // forcefully reinterprete the pointer
+        *( long* )(binary.codes + 2) = imm_num;
+        line->type                   = TYPE_INS;
+    }
     }
 
     line->y64bin = binary;
