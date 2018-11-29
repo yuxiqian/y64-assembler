@@ -9,7 +9,7 @@ line_t* line_head = NULL;
 line_t* line_tail = NULL;
 int     lineno    = 0;
 
-#define DEBUG
+#define DEBUG 1
 
 #define err_print(_s, _a...)       \
     do {                           \
@@ -26,7 +26,7 @@ int     lineno    = 0;
     } while (0);
 
 #define log(_s, _a...)                \
-    if (1) {                          \
+    if (DEBUG) {                      \
         do {                          \
             if (lineno < 0)           \
                 printf("[--]: "_s     \
@@ -40,6 +40,7 @@ int     lineno    = 0;
     }
 
 int64_t vmaddr = 0; /* vm addr */
+char    global_buf[MAX_INSLEN];
 
 /* register table */
 const reg_t  reg_table[REG_NONE] = { { "%rax", REG_RAX, 4 }, { "%rcx", REG_RCX, 4 }, { "%rdx", REG_RDX, 4 }, { "%rbx", REG_RBX, 4 }, { "%rsp", REG_RSP, 4 },
@@ -171,43 +172,43 @@ void add_reloc(char* name, bin_t* bin) {
 /* return value from different parse_xxx function */
 typedef enum { PARSE_ERR = -1, PARSE_REG, PARSE_DIGIT, PARSE_SYMBOL, PARSE_MEM, PARSE_DELIM, PARSE_INSTR, PARSE_LABEL } parse_t;
 
-/*
- * parse_instr: parse an expected data token (e.g., 'rrmovq')
- * args
- *     ptr: point to the start of string
- *     inst: point to the inst_t within instr_set
- *
- * return
- *     PARSE_INSTR: success, move 'ptr' to the first char after token,
- *                            and store the pointer of the instruction to 'inst'
- *     PARSE_ERR: error, the value of 'ptr' and 'inst' are undefined
- */
-parse_t parse_instr(char** ptr, instr_t** inst) {
-    /* skip the blank */
+// /*
+//  * parse_instr: parse an expected data token (e.g., 'rrmovq')
+//  * args
+//  *     ptr: point to the start of string
+//  *     inst: point to the inst_t within instr_set
+//  *
+//  * return
+//  *     PARSE_INSTR: success, move 'ptr' to the first char after token,
+//  *                            and store the pointer of the instruction to 'inst'
+//  *     PARSE_ERR: error, the value of 'ptr' and 'inst' are undefined
+//  */
+// parse_t parse_instr(char** ptr, instr_t** inst) {
+//     /* skip the blank */
 
-    /* find_instr and check end */
+//     /* find_instr and check end */
 
-    /* set 'ptr' and 'inst' */
+//     /* set 'ptr' and 'inst' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_delim: parse an expected delimiter token (e.g., ',')
- * args
- *     ptr: point to the start of string
- *
- * return
- *     PARSE_DELIM: success, move 'ptr' to the first char after token
- *     PARSE_ERR: error, the value of 'ptr' and 'delim' are undefined
- */
-parse_t parse_delim(char** ptr, char delim) {
-    /* skip the blank and check */
+// /*
+//  * parse_delim: parse an expected delimiter token (e.g., ',')
+//  * args
+//  *     ptr: point to the start of string
+//  *
+//  * return
+//  *     PARSE_DELIM: success, move 'ptr' to the first char after token
+//  *     PARSE_ERR: error, the value of 'ptr' and 'delim' are undefined
+//  */
+// parse_t parse_delim(char** ptr, char delim) {
+//     /* skip the blank and check */
 
-    /* set 'ptr' */
+//     /* set 'ptr' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
 /*
  * parse_reg: parse an expected register token (e.g., '%rax')
@@ -221,156 +222,161 @@ parse_t parse_delim(char** ptr, char delim) {
  *     PARSE_ERR: error, the value of 'ptr' and 'regid' are undefined
  */
 parse_t parse_reg(char** ptr, regid_t* regid) {
-    /* skip the blank and check */
-
-    /* find register */
-
-    /* set 'ptr' and 'regid' */
-
+    if (!IS_REG(*ptr)) {
+        return PARSE_ERR;
+    }
+    int i;
+    for (i = 0; i < 15; ++i) {
+        if (strncmp(reg_table[i].name, *ptr, reg_table[i].namelen) == 0) {
+            *regid = reg_table[i].id;
+            *ptr += reg_table[i].namelen;
+            return PARSE_REG;
+        }
+    }
     return PARSE_ERR;
 }
 
-/*
- * parse_symbol: parse an expected symbol token (e.g., 'Main')
- * args
- *     ptr: point to the start of string
- *     name: point to the name of symbol (should be allocated in this function)
- *
- * return
- *     PARSE_SYMBOL: success, move 'ptr' to the first char after token,
- *                               and allocate and store name to 'name'
- *     PARSE_ERR: error, the value of 'ptr' and 'name' are undefined
- */
-parse_t parse_symbol(char** ptr, char** name) {
-    /* skip the blank and check */
+// /*
+//  * parse_symbol: parse an expected symbol token (e.g., 'Main')
+//  * args
+//  *     ptr: point to the start of string
+//  *     name: point to the name of symbol (should be allocated in this function)
+//  *
+//  * return
+//  *     PARSE_SYMBOL: success, move 'ptr' to the first char after token,
+//  *                               and allocate and store name to 'name'
+//  *     PARSE_ERR: error, the value of 'ptr' and 'name' are undefined
+//  */
+// parse_t parse_symbol(char** ptr, char** name) {
+//     /* skip the blank and check */
 
-    /* allocate name and copy to it */
+//     /* allocate name and copy to it */
 
-    /* set 'ptr' and 'name' */
+//     /* set 'ptr' and 'name' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_digit: parse an expected digit token (e.g., '0x100')
- * args
- *     ptr: point to the start of string
- *     value: point to the value of digit
- *
- * return
- *     PARSE_DIGIT: success, move 'ptr' to the first char after token
- *                            and store the value of digit to 'value'
- *     PARSE_ERR: error, the value of 'ptr' and 'value' are undefined
- */
-parse_t parse_digit(char** ptr, long* value) {
-    /* skip the blank and check */
+// /*
+//  * parse_digit: parse an expected digit token (e.g., '0x100')
+//  * args
+//  *     ptr: point to the start of string
+//  *     value: point to the value of digit
+//  *
+//  * return
+//  *     PARSE_DIGIT: success, move 'ptr' to the first char after token
+//  *                            and store the value of digit to 'value'
+//  *     PARSE_ERR: error, the value of 'ptr' and 'value' are undefined
+//  */
+// parse_t parse_digit(char** ptr, long* value) {
+//     /* skip the blank and check */
 
-    /* calculate the digit, (NOTE: see strtoll()) */
+//     /* calculate the digit, (NOTE: see strtoll()) */
 
-    /* set 'ptr' and 'value' */
+//     /* set 'ptr' and 'value' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_imm: parse an expected immediate token (e.g., '$0x100' or 'STACK')
- * args
- *     ptr: point to the start of string
- *     name: point to the name of symbol (should be allocated in this function)
- *     value: point to the value of digit
- *
- * return
- *     PARSE_DIGIT: success, the immediate token is a digit,
- *                            move 'ptr' to the first char after token,
- *                            and store the value of digit to 'value'
- *     PARSE_SYMBOL: success, the immediate token is a symbol,
- *                            move 'ptr' to the first char after token,
- *                            and allocate and store name to 'name'
- *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
- */
-parse_t parse_imm(char** ptr, char** name, long* value) {
-    /* skip the blank and check */
+// /*
+//  * parse_imm: parse an expected immediate token (e.g., '$0x100' or 'STACK')
+//  * args
+//  *     ptr: point to the start of string
+//  *     name: point to the name of symbol (should be allocated in this function)
+//  *     value: point to the value of digit
+//  *
+//  * return
+//  *     PARSE_DIGIT: success, the immediate token is a digit,
+//  *                            move 'ptr' to the first char after token,
+//  *                            and store the value of digit to 'value'
+//  *     PARSE_SYMBOL: success, the immediate token is a symbol,
+//  *                            move 'ptr' to the first char after token,
+//  *                            and allocate and store name to 'name'
+//  *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
+//  */
+// parse_t parse_imm(char** ptr, char** name, long* value) {
+//     /* skip the blank and check */
 
-    /* if IS_IMM, then parse the digit */
+//     /* if IS_IMM, then parse the digit */
 
-    /* if IS_LETTER, then parse the symbol */
+//     /* if IS_LETTER, then parse the symbol */
 
-    /* set 'ptr' and 'name' or 'value' */
+//     /* set 'ptr' and 'name' or 'value' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_mem: parse an expected memory token (e.g., '8(%rbp)')
- * args
- *     ptr: point to the start of string
- *     value: point to the value of digit
- *     regid: point to the regid of register
- *
- * return
- *     PARSE_MEM: success, move 'ptr' to the first char after token,
- *                          and store the value of digit to 'value',
- *                          and store the regid to 'regid'
- *     PARSE_ERR: error, the value of 'ptr', 'value' and 'regid' are undefined
- */
-parse_t parse_mem(char** ptr, long* value, regid_t* regid) {
-    /* skip the blank and check */
+// /*
+//  * parse_mem: parse an expected memory token (e.g., '8(%rbp)')
+//  * args
+//  *     ptr: point to the start of string
+//  *     value: point to the value of digit
+//  *     regid: point to the regid of register
+//  *
+//  * return
+//  *     PARSE_MEM: success, move 'ptr' to the first char after token,
+//  *                          and store the value of digit to 'value',
+//  *                          and store the regid to 'regid'
+//  *     PARSE_ERR: error, the value of 'ptr', 'value' and 'regid' are undefined
+//  */
+// parse_t parse_mem(char** ptr, long* value, regid_t* regid) {
+//     /* skip the blank and check */
 
-    /* calculate the digit and register, (ex: (%rbp) or 8(%rbp)) */
+//     /* calculate the digit and register, (ex: (%rbp) or 8(%rbp)) */
 
-    /* set 'ptr', 'value' and 'regid' */
+//     /* set 'ptr', 'value' and 'regid' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_data: parse an expected data token (e.g., '0x100' or 'array')
- * args
- *     ptr: point to the start of string
- *     name: point to the name of symbol (should be allocated in this function)
- *     value: point to the value of digit
- *
- * return
- *     PARSE_DIGIT: success, data token is a digit,
- *                            and move 'ptr' to the first char after token,
- *                            and store the value of digit to 'value'
- *     PARSE_SYMBOL: success, data token is a symbol,
- *                            and move 'ptr' to the first char after token,
- *                            and allocate and store name to 'name'
- *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
- */
-parse_t parse_data(char** ptr, char** name, long* value) {
-    /* skip the blank and check */
+// /*
+//  * parse_data: parse an expected data token (e.g., '0x100' or 'array')
+//  * args
+//  *     ptr: point to the start of string
+//  *     name: point to the name of symbol (should be allocated in this function)
+//  *     value: point to the value of digit
+//  *
+//  * return
+//  *     PARSE_DIGIT: success, data token is a digit,
+//  *                            and move 'ptr' to the first char after token,
+//  *                            and store the value of digit to 'value'
+//  *     PARSE_SYMBOL: success, data token is a symbol,
+//  *                            and move 'ptr' to the first char after token,
+//  *                            and allocate and store name to 'name'
+//  *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
+//  */
+// parse_t parse_data(char** ptr, char** name, long* value) {
+//     /* skip the blank and check */
 
-    /* if IS_DIGIT, then parse the digit */
+//     /* if IS_DIGIT, then parse the digit */
 
-    /* if IS_LETTER, then parse the symbol */
+//     /* if IS_LETTER, then parse the symbol */
 
-    /* set 'ptr', 'name' and 'value' */
+//     /* set 'ptr', 'name' and 'value' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
-/*
- * parse_label: parse an expected label token (e.g., 'Loop:')
- * args
- *     ptr: point to the start of string
- *     name: point to the name of symbol (should be allocated in this function)
- *
- * return
- *     PARSE_LABEL: success, move 'ptr' to the first char after token
- *                            and allocate and store name to 'name'
- *     PARSE_ERR: error, the value of 'ptr' is undefined
- */
-parse_t parse_label(char** ptr, char** name) {
-    /* skip the blank and check */
+// /*
+//  * parse_label: parse an expected label token (e.g., 'Loop:')
+//  * args
+//  *     ptr: point to the start of string
+//  *     name: point to the name of symbol (should be allocated in this function)
+//  *
+//  * return
+//  *     PARSE_LABEL: success, move 'ptr' to the first char after token
+//  *                            and allocate and store name to 'name'
+//  *     PARSE_ERR: error, the value of 'ptr' is undefined
+//  */
+// parse_t parse_label(char** ptr, char** name) {
+//     /* skip the blank and check */
 
-    /* allocate name and copy to it */
+//     /* allocate name and copy to it */
 
-    /* set 'ptr' and 'name' */
+//     /* set 'ptr' and 'name' */
 
-    return PARSE_ERR;
-}
+//     return PARSE_ERR;
+// }
 
 /*
  * parse_line: parse a line of y64 code (e.g., 'Loop: mrmovq (%rcx), %rsi')
@@ -421,7 +427,7 @@ type_t parse_line(line_t* line) {
     for (i = 0; i < 34; ++i) {
         if (strncmp(instr_set[i].name, ins_word, instr_set[i].len) == 0) {
             instr = instr_set[i];
-            log("Matched %d\n", i);
+            log("Matched %d, %s\n", i, instr_set[i].name);
             break;
         }
     }
@@ -435,9 +441,67 @@ type_t parse_line(line_t* line) {
     switch (i) {
     case 0:
     case 1:
-
+    case 24:
+    case 27: {
+        // no parameter. directly write instr code.
         binary.codes[0] = instr.code;
+        line->type      = TYPE_INS;
         break;
+    }
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 25:
+    case 26: {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+        log("funcode = %s\n", funcode);
+        regid_t register_a, register_b;
+        binary.codes[0] = instr.code;
+        if (parse_reg(&funcode, &register_a) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        if (i == 25 || i == 26) {
+            register_b = 0xf;
+            goto _SKIP_PARSE_2;
+        }
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+        if (*funcode == ',') {
+            ++funcode;
+        }
+        else {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+    _SKIP_PARSE_2:;
+        log("rega = %d, regb = %d\n", register_a, register_b);
+        binary.codes[0] = instr.code;
+        binary.codes[1] = HPACK(register_a, register_b);
+        line->type      = TYPE_INS;
+        break;
+    }
     }
 
     line->y64bin = binary;
@@ -455,6 +519,9 @@ type_t parse_line(line_t* line) {
 _CLEAN_UP:;
     free(ins_word);
     free(label_word);
+    if (DEBUG) {
+        return TYPE_INS;
+    }
     return line->type;
 }
 
