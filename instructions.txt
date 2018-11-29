@@ -27,11 +27,11 @@ instr_t instr_set[] = {
     24	{ "ret", 3, HPACK(I_RET, F_NONE), 1 },
     25	{ "pushq", 5, HPACK(I_PUSHQ, F_NONE), 2 },
     26	{ "popq", 4, HPACK(I_POPQ, F_NONE), 2 },
-    { ".byte", 5, HPACK(I_DIRECTIVE, D_DATA), 1 },
-    { ".word", 5, HPACK(I_DIRECTIVE, D_DATA), 2 },
-    { ".long", 5, HPACK(I_DIRECTIVE, D_DATA), 4 },
-    { ".quad", 5, HPACK(I_DIRECTIVE, D_DATA), 8 },
-    { ".pos", 4, HPACK(I_DIRECTIVE, D_POS), 0 },
-    { ".align", 6, HPACK(I_DIRECTIVE, D_ALIGN), 0 },
+    27	{ ".byte", 5, HPACK(I_DIRECTIVE, D_DATA), 1 },
+    28	{ ".word", 5, HPACK(I_DIRECTIVE, D_DATA), 2 },
+    29	{ ".long", 5, HPACK(I_DIRECTIVE, D_DATA), 4 },
+    30	{ ".quad", 5, HPACK(I_DIRECTIVE, D_DATA), 8 },
+    31	{ ".pos", 4, HPACK(I_DIRECTIVE, D_POS), 0 },
+    32	{ ".align", 6, HPACK(I_DIRECTIVE, D_ALIGN), 0 },
     { NULL, 1, 0, 0 }  // end
 };

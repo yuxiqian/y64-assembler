@@ -140,25 +140,35 @@ int add_symbol(char* name, int64_t addr) {
     }
 
     /* create new symbol_t (don't forget to free it)*/
-    symbol_t* new_sym  = calloc(1, sizeof(symbol_t));
-    char*     name_buf = calloc(MAX_INSLEN, sizeof(char));
+    symbol_t new_sym;
+    char*    name_buf = calloc(MAX_INSLEN, sizeof(char));
     strcpy(name_buf, name);
-    new_sym->name = name_buf;
-    new_sym->next = NULL;
-    new_sym->addr = addr;
+    new_sym.name = name_buf;
+    new_sym.next = calloc(1, sizeof(symbol_t));
+    // Key: Always allocate memory in advance
+    // but not keep the pointer NULL.
+
+    new_sym.addr = addr;
 
     /* add the new symbol_t to symbol table */
-    symbol_t* node = symtab;
-    if (node->name == NULL) {
-        symtab = new_sym;
+
+    if (symtab->name == NULL) {
+
+        *symtab = new_sym;
+        // this line crashed .pos. But why?
         return 0;
     }
 
+    symbol_t* node = symtab;
+
     while (node->next->name != NULL) {
+        // Since mentioned above, to see if it's the end of the node tree,
+        // You must check its name pointer (char *) but not the next pointer itself.
+        // It's always initialized.
         node = node->next;
     }
 
-    node->next = new_sym;
+    *(node->next) = new_sym;
 
     return 0;
 }
@@ -449,11 +459,11 @@ type_t parse_line(line_t* line) {
     line->type = TYPE_INS;
 
     char* org_ins_word = ins_word;
-    char *separator    = NULL, *tail;
+    char* separator    = NULL;
 
     bin_t binary;
 
-    while (*org_ins_word != '\0' && *org_ins_word != '\t') {
+    while (*org_ins_word != '\0' && *org_ins_word != '\t' && *org_ins_word != '\n') {
 
         if (*org_ins_word == ':') {
             separator = org_ins_word;
@@ -711,8 +721,103 @@ type_t parse_line(line_t* line) {
         *( long* )(binary.codes + 1) = imm_value;
         line->type                   = TYPE_INS;
     } break;
+
+    // data filling instructions
+    case 27:  // .byte
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        long imm_value = 0;
+        imm_value      = strtol(funcode, &funcode, 0);
+
+        memcpy(&binary.codes[0], &imm_value, 1);
+    } break;
+    case 28:  // .word
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        long imm_value = 0;
+        imm_value      = strtol(funcode, &funcode, 0);
+
+        memcpy(&binary.codes[0], &imm_value, 2);
+    } break;
+    case 29:  // .long
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        long imm_value = 0;
+        imm_value      = strtoul(funcode, &funcode, 0);
+
+        memcpy(&binary.codes[0], &imm_value, 4);
+    } break;
+    case 30:  // .quad
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        // log("funcode = %s\n", funcode);
+
+        unsigned long imm_value = strtouq(funcode, &funcode, 0);
+
+        // log("Got quad %ld\n", imm_value);
+        memcpy(&binary.codes[0], &imm_value, 8);
+    } break;
+
+    case 31:  // pos
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        int64_t imm_value = strtoll(funcode, &funcode, 0);
+        log("Got quad %ld\n", imm_value);
+
+        vmaddr      = imm_value;
+        binary.addr = vmaddr;
+        line->type  = TYPE_COMM;
+    } break;
+
+    case 32:  // align
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+
+        int64_t imm_value = strtoll(funcode, &funcode, 0);
+        log("Got quad %ld\n", imm_value);
+
+        if (imm_value < 1) {
+            line->type = TYPE_ERR;
+        }
+
+        while (vmaddr % imm_value != 0) {
+            ++vmaddr;
+        }
+        binary.addr = vmaddr;
+        line->type  = TYPE_COMM;
+    } break;
     }
 
+    // set binary struct
     line->y64bin = binary;
 
 _CLEAN_UP:;
