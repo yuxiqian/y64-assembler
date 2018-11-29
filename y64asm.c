@@ -173,27 +173,6 @@ void add_reloc(char* name, bin_t* bin) {
 typedef enum { PARSE_ERR = -1, PARSE_REG, PARSE_DIGIT, PARSE_SYMBOL, PARSE_MEM, PARSE_DELIM, PARSE_INSTR, PARSE_LABEL } parse_t;
 
 // /*
-//  * parse_instr: parse an expected data token (e.g., 'rrmovq')
-//  * args
-//  *     ptr: point to the start of string
-//  *     inst: point to the inst_t within instr_set
-//  *
-//  * return
-//  *     PARSE_INSTR: success, move 'ptr' to the first char after token,
-//  *                            and store the pointer of the instruction to 'inst'
-//  *     PARSE_ERR: error, the value of 'ptr' and 'inst' are undefined
-//  */
-// parse_t parse_instr(char** ptr, instr_t** inst) {
-//     /* skip the blank */
-
-//     /* find_instr and check end */
-
-//     /* set 'ptr' and 'inst' */
-
-//     return PARSE_ERR;
-// }
-
-// /*
 //  * parse_delim: parse an expected delimiter token (e.g., ',')
 //  * args
 //  *     ptr: point to the start of string
@@ -202,13 +181,22 @@ typedef enum { PARSE_ERR = -1, PARSE_REG, PARSE_DIGIT, PARSE_SYMBOL, PARSE_MEM, 
 //  *     PARSE_DELIM: success, move 'ptr' to the first char after token
 //  *     PARSE_ERR: error, the value of 'ptr' and 'delim' are undefined
 //  */
-// parse_t parse_delim(char** ptr, char delim) {
-//     /* skip the blank and check */
+parse_t parse_delim(char** ptr) {
+    while (**ptr == ' ' || **ptr == '\t') {
+        ++(*ptr);
+    }
+    if (**ptr == ',') {
+        ++(*ptr);
+    }
+    else {
+        return PARSE_ERR;
+    }
+    while (**ptr == ' ' || **ptr == '\t') {
+        ++(*ptr);
+    }
 
-//     /* set 'ptr' */
-
-//     return PARSE_ERR;
-// }
+    return PARSE_DELIM;
+}
 
 /*
  * parse_reg: parse an expected register token (e.g., '%rax')
@@ -278,33 +266,50 @@ parse_t parse_reg(char** ptr, regid_t* regid) {
 //     return PARSE_ERR;
 // }
 
-// /*
-//  * parse_imm: parse an expected immediate token (e.g., '$0x100' or 'STACK')
-//  * args
-//  *     ptr: point to the start of string
-//  *     name: point to the name of symbol (should be allocated in this function)
-//  *     value: point to the value of digit
-//  *
-//  * return
-//  *     PARSE_DIGIT: success, the immediate token is a digit,
-//  *                            move 'ptr' to the first char after token,
-//  *                            and store the value of digit to 'value'
-//  *     PARSE_SYMBOL: success, the immediate token is a symbol,
-//  *                            move 'ptr' to the first char after token,
-//  *                            and allocate and store name to 'name'
-//  *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
-//  */
-// parse_t parse_imm(char** ptr, char** name, long* value) {
-//     /* skip the blank and check */
+/*
+ * parse_imm: parse an expected immediate token (e.g., '$0x100' or 'STACK')
+ * args
+ *     ptr: point to the start of string
+ *     name: point to the name of symbol (should be allocated in this function)
+ *     value: point to the value of digit
+ *
+ * return
+ *     PARSE_DIGIT: success, the immediate token is a digit,
+ *                            move 'ptr' to the first char after token,
+ *                            and store the value of digit to 'value'
+ *     PARSE_SYMBOL: success, the immediate token is a symbol,
+ *                            move 'ptr' to the first char after token,
+ *                            and allocate and store name to 'name'
+ *     PARSE_ERR: error, the value of 'ptr', 'name' and 'value' are undefined
+ */
+parse_t parse_imm(char** ptr, char** name, long* value) {
+    /* skip the blank and check */
+    while (**ptr == ' ' || **ptr == '\t') {
+        ++(*ptr);
+    }
+    /* if IS_IMM, then parse the digit */
+    if (IS_IMM(*ptr)) {
+        ++(*ptr);
+        log("Gotta string like integer: %s\n", *ptr);
 
-//     /* if IS_IMM, then parse the digit */
+        *value = strtoll(*ptr, ptr, 0);
+        return PARSE_DIGIT;
+    }
+    /* if IS_LETTER, then parse the symbol */
+    if (IS_LETTER(*ptr)) {
+        *name       = calloc(MAX_INSLEN, sizeof(char));
+        int str_len = 0;
+        while (**ptr != ' ' && **ptr != ',') {
+            name[str_len++] = **ptr;
+            ++(*ptr);
+        }
+        symbol_t* sym;
+        find_symbol(*name);
+    }
+    /* set 'ptr' and 'name' or 'value' */
 
-//     /* if IS_LETTER, then parse the symbol */
-
-//     /* set 'ptr' and 'name' or 'value' */
-
-//     return PARSE_ERR;
-// }
+    return PARSE_ERR;
+}
 
 // /*
 //  * parse_mem: parse an expected memory token (e.g., '8(%rbp)')
@@ -435,32 +440,42 @@ type_t parse_line(line_t* line) {
         line->type = TYPE_ERR;
         goto _CLEAN_UP;
     }
+
+    // Initialize bytes array
     binary.bytes = instr.bytes;
-    binary.addr  = vmaddr;
+
+    // Update instruction address
+    binary.addr = vmaddr;
+
+    // Update global virtual machine address
     vmaddr += binary.bytes;
+
+    // Parse parameters
     switch (i) {
-    case 0:
-    case 1:
-    case 24:
-    case 27: {
-        // no parameter. directly write instr code.
+    // no parameter. directly write instr code.
+    case 0:   // nop
+    case 1:   // halt
+    case 24:  // ret
+    {
         binary.codes[0] = instr.code;
         line->type      = TYPE_INS;
-        break;
-    }
-    case 2:
-    case 3:
-    case 4:
-    case 5:
-    case 6:
-    case 7:
-    case 8:
-    case 12:
-    case 13:
-    case 14:
-    case 15:
-    case 25:
-    case 26: {
+    } break;
+
+    // one or two registers as parameters, write two of them in one byte.
+    case 2:   // rrmovq
+    case 3:   // cmovle
+    case 4:   // cmovl
+    case 5:   // cmove
+    case 6:   // cmovne
+    case 7:   // cmovge
+    case 8:   // cmovg
+    case 12:  // addq
+    case 13:  // subq
+    case 14:  // andq
+    case 15:  // xorq
+    case 25:  // pushq
+    case 26:  // popq
+    {
         char* funcode = ins_word + instr_set[i].len;
         // Skip the command head.
         while (*funcode == ' ' || *funcode == '\t') {
@@ -473,22 +488,16 @@ type_t parse_line(line_t* line) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
         }
+
+        // ins id 25 and 26 (push & pop) doesn't require the second register
         if (i == 25 || i == 26) {
             register_b = 0xf;
             goto _SKIP_PARSE_2;
         }
-        while (*funcode == ' ' || *funcode == '\t') {
-            ++funcode;
-        }
-        if (*funcode == ',') {
-            ++funcode;
-        }
-        else {
+
+        if (parse_delim(&funcode) != PARSE_DELIM) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
-        }
-        while (*funcode == ' ' || *funcode == '\t') {
-            ++funcode;
         }
 
         if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
@@ -500,26 +509,57 @@ type_t parse_line(line_t* line) {
         binary.codes[0] = instr.code;
         binary.codes[1] = HPACK(register_a, register_b);
         line->type      = TYPE_INS;
-        break;
-    }
+
+    } break;
+
+    case 9:  // irmovq
+    {
+        char* funcode = ins_word + instr_set[i].len;
+        // Skip the command head.
+        while (*funcode == ' ' || *funcode == '\t') {
+            ++funcode;
+        }
+        log("funcode = %s\n", funcode);
+        regid_t register_b;
+        binary.codes[0] = instr.code;
+
+        char* name;
+        long  imm_value;
+        if (parse_imm(&funcode, &name, &imm_value) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        log("Parsed imm num: %ld\n", imm_value);
+
+        if (parse_delim(&funcode) != PARSE_DELIM) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
+        log("reg = %d\n", register_b);
+        binary.codes[0] = instr.code;
+        binary.codes[1] = HPACK(0xF, register_b);
+
+        // forcefully reinterprete the pointer
+        *( long* )(binary.codes + 2) = imm_value;
+        line->type                   = TYPE_INS;
+    } break;
     }
 
     line->y64bin = binary;
-
-    /* is a label ? */
-
-    /* is an instruction ? */
-
-    /* set type and y64bin */
-
-    /* update vmaddr */
-
-    /* parse the rest of instruction according to the itype */
 
 _CLEAN_UP:;
     free(ins_word);
     free(label_word);
     if (DEBUG) {
+        // Under DEBUG mode, always assume the parse_line is successful
+        // in order to print the debug message.
         return TYPE_INS;
     }
     return line->type;
