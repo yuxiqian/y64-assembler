@@ -9,7 +9,7 @@ line_t* line_head = NULL;
 line_t* line_tail = NULL;
 int     lineno    = 0;
 
-#define DEBUG 0
+#define DEBUG 1
 
 #define err_print(_s, _a...)       \
     do {                           \
@@ -113,13 +113,22 @@ symbol_t* symtab = NULL;
  *     NULL: not exist
  */
 symbol_t* find_symbol(char* name) {
+    // log("Going to find symbol %s\n", name);
+    if (symtab == NULL) {
+        return NULL;
+    }
+
     symbol_t* node = symtab;
-    while (node->name != NULL) {
+
+    while (node != NULL) {
+        // log("strcmp: %s, %s\n", node->name, name);
         if (strcmp(node->name, name) == 0) {
+            // log("Successfully found.\n");
             return node;
         }
         node = node->next;
     }
+    // log("No symbol found.\n");
     return NULL;
 }
 
@@ -134,42 +143,35 @@ symbol_t* find_symbol(char* name) {
  */
 int add_symbol(char* name, int64_t addr) {
     /* check duplicate */
+
     if (find_symbol(name) != NULL) {
         return -1;
         // duplicate symbol here
     }
 
-    /* create new symbol_t (don't forget to free it)*/
-    symbol_t new_sym;
-    char*    name_buf = calloc(MAX_INSLEN, sizeof(char));
+    /* copy name buffer (don't forget to free it)*/
+    char* name_buf = calloc(MAX_INSLEN, sizeof(char));
     strcpy(name_buf, name);
-    new_sym.name = name_buf;
-    new_sym.next = calloc(1, sizeof(symbol_t));
-    // Key: Always allocate memory in advance
-    // but not keep the pointer NULL.
-
-    new_sym.addr = addr;
 
     /* add the new symbol_t to symbol table */
-
-    if (symtab->name == NULL) {
-
-        *symtab = new_sym;
-        // this line crashed .pos. But why?
+    if (symtab == NULL) {
+        symtab       = calloc(1, sizeof(symbol_t));
+        symtab->addr = addr;
+        symtab->name = name_buf;
+        symtab->next = NULL;
+        log("Added First Symbol %s at %ld\n", name, addr);
         return 0;
     }
 
     symbol_t* node = symtab;
-
-    while (node->next->name != NULL) {
-        // Since mentioned above, to see if it's the end of the node tree,
-        // You must check its name pointer (char *) but not the next pointer itself.
-        // It's always initialized.
+    while (node->next != NULL) {
         node = node->next;
     }
 
-    *(node->next) = new_sym;
-
+    node->next       = calloc(1, sizeof(symbol_t));
+    node->next->addr = addr;
+    node->next->name = name_buf;
+    log("Added Symbol %s at %ld\n", name, addr);
     return 0;
 }
 
@@ -187,11 +189,39 @@ reloc_t* reltab = NULL;
  */
 void add_reloc(char* name, bin_t* bin) {
 
-    if (find_symbol(name) != NULL) {
-        // already exist
+    /* create new reloc_t (don't forget to free it)*/
 
-        return;
+    char* name_buf = calloc(MAX_INSLEN, sizeof(char));
+    strcpy(name_buf, name);
+
+    // Key: Always allocate memory in advance
+    // but not keep the pointer NULL.
+
+    /* add the new reloc_t to symbol table */
+
+    if (reltab == NULL) {
+        reltab         = calloc(1, sizeof(reloc_t));
+        reltab->name   = name_buf;
+        reltab->y64bin = bin;
+        log("Add First reloc called %s\n", reltab->name);
+        return 0;
     }
+
+    reloc_t* node = reltab;
+
+    while (node->next != NULL) {
+        // Since mentioned above, to see if it's the end of the node tree,
+        // You must check its name pointer (char *) but not the next pointer itself.
+        // It's always initialized.
+        node = node->next;
+    }
+
+    node->next         = calloc(1, sizeof(reloc_t));
+    node->next->name   = name_buf;
+    node->next->y64bin = bin;
+    log("Add reloc called %s\n", node->next->name);
+
+    return;
 }
 
 /* macro for parsing y64 assembly code */
@@ -331,19 +361,42 @@ parse_t parse_imm(char** ptr, char** name, long* value) {
     /* if IS_IMM, then parse the digit */
     if (IS_IMM(*ptr)) {
         ++(*ptr);
-        log("Gotta string like integer: %s\n", *ptr);
+        log("Gotta $ like integer: %s\n", *ptr);
 
-        *value = strtol(*ptr, ptr, 0);
+        *value = strtoul(*ptr, ptr, 0);
+        return PARSE_DIGIT;
+    }
+    else if (IS_DIGIT(*ptr)) {
+        log("Gotta no $ like integer: %s\n", *ptr);
+
+        *value = strtoul(*ptr, ptr, 0);
         return PARSE_DIGIT;
     }
     /* if IS_LETTER, then parse the symbol */
     if (IS_LETTER(*ptr)) {
+
+        *name = calloc(MAX_INSLEN, sizeof(char));
         log("going to find symbol %s\n", *ptr);
-        symbol_t* sym = find_symbol(*ptr);
-        if (sym->name != NULL) {
+
+        int len = 0;
+
+        while ((*ptr)[len] != ',' && (*ptr)[len] != '\t' && (*ptr)[len] != '\n' && (*ptr)[len] != '\0' && (*ptr)[len] != ' ') {
+            ++len;
+        }
+
+        log("Str = %s Now len = %d\n", *ptr, len);
+
+        strncpy(*name, *ptr, len);
+
+        symbol_t* sym = find_symbol(*name);
+
+        if (sym != NULL) {
             log("found symbol %s at %ld\n", sym->name, sym->addr);
             *value = sym->addr;
         }
+
+        *ptr += len;
+        // Skip the Label words
         return PARSE_SYMBOL;
     }
     /* set 'ptr' and 'name' or 'value' */
@@ -446,8 +499,10 @@ type_t parse_line(line_t* line) {
     }
 
     /* is a comment ? */
-    char* ins_word   = calloc(MAX_INSLEN, sizeof(char));
-    char* label_word = calloc(MAX_INSLEN, sizeof(char));
+    char* ins_word          = calloc(MAX_INSLEN, sizeof(char));
+    char* free_use_ins_word = ins_word;
+    char* label_word        = calloc(MAX_INSLEN, sizeof(char));
+
     log("going to copy %ld\n", end - start);
     strncpy(ins_word, start, end - start);
     log("Eaten %s\n", ins_word);
@@ -459,12 +514,12 @@ type_t parse_line(line_t* line) {
     line->type = TYPE_INS;
 
     char* org_ins_word = ins_word;
-    char* separator    = NULL;
+    char *separator    = NULL, *tail;
 
     bin_t binary;
+    log("Org ins word = %s\n", org_ins_word);
 
-    while (*org_ins_word != '\0' && *org_ins_word != '\t' && *org_ins_word != '\n') {
-
+    while (*org_ins_word != '\0' && *org_ins_word != '\n') {
         if (*org_ins_word == ':') {
             separator = org_ins_word;
             break;
@@ -473,14 +528,27 @@ type_t parse_line(line_t* line) {
     }
 
     if (separator != NULL) {
+
         strncpy(label_word, ins_word, separator - ins_word);
+
         log("A label here! label = %s\n", label_word);
-        add_symbol(label_word, vmaddr);
         log("add symbol %s at %ld\n", label_word, vmaddr);
-        line->y64bin = binary;
+
+        add_symbol(label_word, vmaddr);
+
         binary.addr  = vmaddr;
-        line->type   = TYPE_COMM;
-        goto _CLEAN_UP;
+        binary.bytes = 0;
+
+        line->type   = TYPE_INS;
+        line->y64bin = binary;
+
+        if (strlen(separator + 1) < 3) {
+            return TYPE_COMM;
+        }
+        ins_word = separator + 1;
+        while (*ins_word == ' ' || *ins_word == '\t') {
+            ++ins_word;
+        }
     }
 
     instr_t instr = { NULL, 1, 0, 0 };
@@ -581,14 +649,23 @@ type_t parse_line(line_t* line) {
         binary.codes[0] = instr.code;
 
         char* name;
-        long  imm_value;
-        if (parse_imm(&funcode, &name, &imm_value) == PARSE_ERR) {
+        long  imm_value = -1;
+
+        int parse_result = parse_imm(&funcode, &name, &imm_value);
+        if (parse_result == PARSE_ERR) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
         }
 
-        log("Parsed imm num: %ld\n", imm_value);
+        else if (parse_result == PARSE_SYMBOL) {
+            if (imm_value < 0) {
+                log("In irmovq, name = %s\n", name);
+                add_reloc(name, &line->y64bin);
+            }
+        }
 
+        log("Parsed imm num: %ld, name (if any) = %s\n", imm_value, name);
+        log("Following funcode = %s\n", funcode);
         if (parse_delim(&funcode) != PARSE_DELIM) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
@@ -709,17 +786,26 @@ type_t parse_line(line_t* line) {
             ++funcode;
         }
         char* name;
-        long  imm_value = 0;
+        long  imm_value = -2;
 
-        if (parse_imm(&funcode, &name, &imm_value) == PARSE_ERR) {
+        if (parse_imm(&funcode, &name, &imm_value) != PARSE_SYMBOL) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
+        }
+        if (imm_value < 0) {
+            add_reloc(name, &line->y64bin);
+            log("Gotta symbol called %s\n", name);
+            // requires a relocated
+        }
+        else {
+            log("Gotta imm value = %ld\n", imm_value);
         }
         binary.codes[0] = instr.code;
 
         // forcefully reinterprete the pointer
         *( long* )(binary.codes + 1) = imm_value;
-        line->type                   = TYPE_INS;
+        // memcpy(binary.codes + 1, &imm_value, 8);
+        line->type = TYPE_INS;
     } break;
 
     // data filling instructions
@@ -735,6 +821,7 @@ type_t parse_line(line_t* line) {
         imm_value      = strtol(funcode, &funcode, 0);
 
         memcpy(&binary.codes[0], &imm_value, 1);
+        line->type = TYPE_INS;
     } break;
     case 28:  // .word
     {
@@ -748,6 +835,7 @@ type_t parse_line(line_t* line) {
         imm_value      = strtol(funcode, &funcode, 0);
 
         memcpy(&binary.codes[0], &imm_value, 2);
+        line->type = TYPE_INS;
     } break;
     case 29:  // .long
     {
@@ -758,9 +846,10 @@ type_t parse_line(line_t* line) {
         }
 
         long imm_value = 0;
-        imm_value      = strtoul(funcode, &funcode, 0);
+        imm_value      = strtol(funcode, &funcode, 0);
 
         memcpy(&binary.codes[0], &imm_value, 4);
+        line->type = TYPE_INS;
     } break;
     case 30:  // .quad
     {
@@ -771,11 +860,25 @@ type_t parse_line(line_t* line) {
         }
 
         // log("funcode = %s\n", funcode);
+        char* name;
+        long  imm_value = -1;
 
-        unsigned long imm_value = strtouq(funcode, &funcode, 0);
+        int parse_result = parse_imm(&funcode, &name, &imm_value);
+        if (parse_result == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        else if (parse_result == PARSE_SYMBOL) {
+            if (imm_value == -1) {
+                log("Prepare reloc. name = %s\n", name);
+                add_reloc(name, &line->y64bin);
+            }
+        }
 
-        // log("Got quad %ld\n", imm_value);
         memcpy(&binary.codes[0], &imm_value, 8);
+        line->type = TYPE_INS;
+        // log("Got quad %ld\n", imm_value);
+        // *( long* )binary.codes = imm_value;
     } break;
 
     case 31:  // pos
@@ -787,11 +890,11 @@ type_t parse_line(line_t* line) {
         }
 
         int64_t imm_value = strtoll(funcode, &funcode, 0);
-        log("Got quad %ld\n", imm_value);
+        log("Going to locate at %ld\n", imm_value);
 
         vmaddr      = imm_value;
         binary.addr = vmaddr;
-        line->type  = TYPE_COMM;
+        line->type  = TYPE_INS;
     } break;
 
     case 32:  // align
@@ -821,7 +924,7 @@ type_t parse_line(line_t* line) {
     line->y64bin = binary;
 
 _CLEAN_UP:;
-    free(ins_word);
+    free(free_use_ins_word);
     free(label_word);
     if (DEBUG) {
         // Under DEBUG mode, always assume the parse_line is successful
@@ -885,13 +988,27 @@ int assemble(FILE* in) {
  *     -1: error, try to print err information (e.g., addr and symbol)
  */
 int relocate(void) {
+    if (reltab == NULL) {
+        return 0;
+    }
+
     reloc_t* rtmp = NULL;
 
-    rtmp = reltab->next;
-    while (rtmp) {
+    rtmp = reltab;
+
+    while (rtmp != NULL) {
         /* find symbol */
+        symbol_t* result = find_symbol(rtmp->name);
 
         /* relocate y64bin according itype */
+
+        if (result != NULL) {
+            log("Prepare relocate of %s: at %ld\n", rtmp->name, result->addr);
+            *( long* )(rtmp->y64bin->codes + rtmp->y64bin->bytes - 8) = ( long )result->addr;
+        }
+        else {
+            log("Can't find tried relocate of %s\n", rtmp->name);
+        }
 
         /* next */
         rtmp = rtmp->next;
@@ -972,19 +1089,21 @@ void print_screen(void) {
 
 /* init and finit */
 void init(void) {
-    reltab = ( reloc_t* )malloc(sizeof(reloc_t));  // free in finit
-    memset(reltab, 0, sizeof(reloc_t));
+    // reltab = ( reloc_t* )calloc(1, sizeof(reloc_t));  // free in finit
 
-    symtab = ( symbol_t* )malloc(sizeof(symbol_t));  // free in finit
-    memset(symtab, 0, sizeof(symbol_t));
+    // symtab = ( symbol_t* )calloc(1, sizeof(symbol_t));  // free in finit
 
-    line_head = ( line_t* )malloc(sizeof(line_t));  // free in finit
-    memset(line_head, 0, sizeof(line_t));
+    line_head = ( line_t* )calloc(1, sizeof(line_t));  // free in finit
+
     line_tail = line_head;
     lineno    = 0;
 }
 
 void finit(void) {
+
+    if (reltab == NULL) {
+        goto _SKIP_FREE_RELTAB;
+    }
     reloc_t* rtmp = NULL;
     do {
         rtmp = reltab->next;
@@ -994,6 +1113,11 @@ void finit(void) {
         reltab = rtmp;
     } while (reltab);
 
+_SKIP_FREE_RELTAB:;
+
+    if (symtab == NULL) {
+        goto _SKIP_FREE_SYMTAB;
+    }
     symbol_t* stmp = NULL;
     do {
         stmp = symtab->next;
@@ -1002,6 +1126,7 @@ void finit(void) {
         free(symtab);
         symtab = stmp;
     } while (symtab);
+_SKIP_FREE_SYMTAB:;
 
     line_t* ltmp = NULL;
     do {
