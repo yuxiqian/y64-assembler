@@ -9,7 +9,7 @@ line_t* line_head = NULL;
 line_t* line_tail = NULL;
 int     lineno    = 0;
 
-#define DEBUG 0
+#define DEBUG 1
 
 #define err_print(_s, _a...)       \
     do {                           \
@@ -41,6 +41,7 @@ int     lineno    = 0;
 
 int64_t vmaddr = 0; /* vm addr */
 char    global_buf[MAX_INSLEN];
+byte_t  byte_buf[1];
 
 /* register table */
 const reg_t  reg_table[REG_NONE] = { { "%rax", REG_RAX, 4 }, { "%rcx", REG_RCX, 4 }, { "%rdx", REG_RDX, 4 }, { "%rbx", REG_RBX, 4 }, { "%rsp", REG_RSP, 4 },
@@ -204,7 +205,7 @@ void add_reloc(char* name, bin_t* bin) {
         reltab->name   = name_buf;
         reltab->y64bin = bin;
         log("Add First reloc called %s\n", reltab->name);
-        return 0;
+        return;
     }
 
     reloc_t* node = reltab;
@@ -514,7 +515,7 @@ type_t parse_line(line_t* line) {
     line->type = TYPE_INS;
 
     char* org_ins_word = ins_word;
-    char *separator    = NULL, *tail;
+    char* separator    = NULL;
 
     bin_t binary;
     log("Org ins word = %s\n", org_ins_word);
@@ -881,7 +882,7 @@ type_t parse_line(line_t* line) {
         // *( long* )binary.codes = imm_value;
     } break;
 
-    case 31:  // pos
+    case 31:  // .pos
     {
         char* funcode = ins_word + instr_set[i].len;
         // Skip the command head.
@@ -890,14 +891,14 @@ type_t parse_line(line_t* line) {
         }
 
         int64_t imm_value = strtoll(funcode, &funcode, 0);
-        log("Going to locate at %ld\n", imm_value);
+        log(".pos at %ld\n", imm_value);
 
         vmaddr      = imm_value;
         binary.addr = vmaddr;
         line->type  = TYPE_INS;
     } break;
 
-    case 32:  // align
+    case 32:  // .align
     {
         char* funcode = ins_word + instr_set[i].len;
         // Skip the command head.
@@ -906,15 +907,18 @@ type_t parse_line(line_t* line) {
         }
 
         int64_t imm_value = strtoll(funcode, &funcode, 0);
-        log("Got quad %ld\n", imm_value);
+        log("Got align scale %ld\n", imm_value);
 
         if (imm_value < 1) {
             line->type = TYPE_ERR;
         }
 
-        while (vmaddr % imm_value != 0) {
-            ++vmaddr;
+        int len = 0;
+        while ((vmaddr + len) % imm_value != 0) {
+            ++len;
         }
+
+        vmaddr += len;
         binary.addr = vmaddr;
         line->type  = TYPE_INS;
     } break;
@@ -1028,11 +1032,31 @@ int relocate(void) {
 int binfile(FILE* out) {
 
     /* prepare image with y64 binary code */
-    line_t* tmp = line_head->next;
+    line_t* tmp       = line_head->next;
+    int64_t last_addr = 0;
     while (tmp != NULL) {
+        if (tmp->y64bin.bytes == 0) {
+            tmp = tmp->next;
+            continue;
+        }
+        int i;
+
+        // log("Find gap %ld between %ld.\n", tmp->y64bin.addr, last_addr);
+        for (i = 0; i < tmp->y64bin.addr - last_addr; ++i) {
+            fwrite(byte_buf, sizeof(byte_t), 1, out);
+        }
+
+        log("Put %d gap bytes.\n", i);
+
         if (fwrite(tmp->y64bin.codes, sizeof(byte_t), tmp->y64bin.bytes, out) != tmp->y64bin.bytes) {
             return -1;
-        };
+        }
+
+    _TURN_NEXT:;
+        // log("addr = %ld, bytes = %d\n", tmp->y64bin.addr, tmp->y64bin.bytes);
+
+        last_addr = tmp->y64bin.addr + tmp->y64bin.bytes;
+
         tmp = tmp->next;
     }
     /* binary write y64 code to output file (NOTE: see fwrite()) */
