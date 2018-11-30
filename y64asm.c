@@ -146,6 +146,7 @@ int add_symbol(char* name, int64_t addr) {
     /* check duplicate */
 
     if (find_symbol(name) != NULL) {
+        err_print("Dup symbol:%s", name);
         return -1;
         // duplicate symbol here
     }
@@ -182,21 +183,15 @@ reloc_t* reltab = NULL;
 /*
  * add_reloc: add a new relocation to the relocation table
  * args
- *     name: the name of symbol
+ *     name: the name of relocation
  *
- * return
- *     0: success
- *     -1: error, the symbol has exist
  */
-void add_reloc(char* name, bin_t* bin) {
+int add_reloc(char* name, bin_t* bin) {
 
     /* create new reloc_t (don't forget to free it)*/
 
     char* name_buf = calloc(MAX_INSLEN, sizeof(char));
     strcpy(name_buf, name);
-
-    // Key: Always allocate memory in advance
-    // but not keep the pointer NULL.
 
     /* add the new reloc_t to symbol table */
 
@@ -205,7 +200,7 @@ void add_reloc(char* name, bin_t* bin) {
         reltab->name   = name_buf;
         reltab->y64bin = bin;
         log("Add First reloc called %s\n", reltab->name);
-        return;
+        return 0;
     }
 
     reloc_t* node = reltab;
@@ -222,7 +217,7 @@ void add_reloc(char* name, bin_t* bin) {
     node->next->y64bin = bin;
     log("Add reloc called %s\n", node->next->name);
 
-    return;
+    return 0;
 }
 
 /* macro for parsing y64 assembly code */
@@ -261,6 +256,7 @@ parse_t parse_delim(char** ptr) {
         ++(*ptr);
     }
     else {
+        err_print("Invalid ','");
         return PARSE_ERR;
     }
     while (**ptr == ' ' || **ptr == '\t') {
@@ -283,6 +279,7 @@ parse_t parse_delim(char** ptr) {
  */
 parse_t parse_reg(char** ptr, regid_t* regid) {
     if (!IS_REG(*ptr)) {
+        err_print("Invalid REG");
         return PARSE_ERR;
     }
     int i;
@@ -293,6 +290,7 @@ parse_t parse_reg(char** ptr, regid_t* regid) {
             return PARSE_REG;
         }
     }
+    err_print("Invalid REG");
     return PARSE_ERR;
 }
 
@@ -362,9 +360,15 @@ parse_t parse_imm(char** ptr, char** name, long* value) {
     /* if IS_IMM, then parse the digit */
     if (IS_IMM(*ptr)) {
         ++(*ptr);
+        char* result;
         log("Gotta $ like integer: %s\n", *ptr);
 
-        *value = strtoul(*ptr, ptr, 0);
+        *value = strtoul(*ptr, &result, 0);
+        if (*ptr == result) {
+            err_print("Invalid Immediate");
+            return PARSE_ERR;
+        }
+        *ptr = result;
         return PARSE_DIGIT;
     }
     else if (IS_DIGIT(*ptr)) {
@@ -535,7 +539,11 @@ type_t parse_line(line_t* line) {
         log("A label here! label = %s\n", label_word);
         log("add symbol %s at %ld\n", label_word, vmaddr);
 
-        add_symbol(label_word, vmaddr);
+        if (add_symbol(label_word, vmaddr) == -1) {
+            // failed to add symbol
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
 
         binary.addr  = vmaddr;
         binary.bytes = 0;
@@ -669,7 +677,10 @@ type_t parse_line(line_t* line) {
         else if (parse_result == PARSE_SYMBOL) {
             if (imm_value < 0) {
                 log("In irmovq, name = %s\n", name);
-                add_reloc(name, &line->y64bin);
+                if (add_reloc(name, &line->y64bin) == -1) {
+                    line->type = TYPE_ERR;
+                    goto _CLEAN_UP;
+                }
             }
         }
 
@@ -721,12 +732,27 @@ type_t parse_line(line_t* line) {
             imm_num = strtol(funcode, &funcode, 0);
         }
 
-        funcode += 1;  // skip '('
+        if (*funcode == '(') {
+            funcode += 1;  // skip '('
+        }
+        else {
+            err_print("Invalid MEM");
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
         if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
         }
-        funcode += 1;  // skip ')'
+
+        if (*funcode == ')') {
+            funcode += 1;  // skip ')'
+        }
+        else {
+            err_print("Invalid MEM");
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
 
         binary.codes[0] = instr.code;
         binary.codes[1] = HPACK(register_a, register_b);
@@ -753,12 +779,28 @@ type_t parse_line(line_t* line) {
             imm_num = strtol(funcode, &funcode, 0);
         }
 
-        funcode += 1;  // skip '('
+        if (*funcode == '(') {
+            funcode += 1;  // skip '('
+        }
+        else {
+            err_print("Invalid MEM");
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+
         if (parse_reg(&funcode, &register_b) == PARSE_ERR) {
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
         }
-        funcode += 1;  // skip ')'
+
+        if (*funcode == ')') {
+            funcode += 1;  // skip ')'
+        }
+        else {
+            err_print("Invalid MEM");
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
 
         if (parse_delim(&funcode) != PARSE_DELIM) {
             line->type = TYPE_ERR;
@@ -798,11 +840,15 @@ type_t parse_line(line_t* line) {
         long  imm_value = -2;
 
         if (parse_imm(&funcode, &name, &imm_value) != PARSE_SYMBOL) {
+            err_print("Invalid DEST");
             line->type = TYPE_ERR;
             goto _CLEAN_UP;
         }
         if (imm_value < 0) {
-            add_reloc(name, &line->y64bin);
+            if (add_reloc(name, &line->y64bin) == -1) {
+                line->type = TYPE_ERR;
+                goto _CLEAN_UP;
+            }
             log("Gotta symbol called %s\n", name);
             // requires a relocated
         }
@@ -854,8 +900,23 @@ type_t parse_line(line_t* line) {
             ++funcode;
         }
 
-        long imm_value = 0;
-        imm_value      = strtol(funcode, &funcode, 0);
+        char* name;
+        long  imm_value = -1;
+
+        int parse_result = parse_imm(&funcode, &name, &imm_value);
+        if (parse_result == PARSE_ERR) {
+            line->type = TYPE_ERR;
+            goto _CLEAN_UP;
+        }
+        else if (parse_result == PARSE_SYMBOL) {
+            if (imm_value == -1) {
+                log("Prepare reloc. name = %s\n", name);
+                if (add_reloc(name, &line->y64bin) == -1) {
+                    line->type = TYPE_ERR;
+                    goto _CLEAN_UP;
+                }
+            }
+        }
 
         memcpy(&binary.codes[0], &imm_value, 4);
         line->type = TYPE_INS;
@@ -880,7 +941,10 @@ type_t parse_line(line_t* line) {
         else if (parse_result == PARSE_SYMBOL) {
             if (imm_value == -1) {
                 log("Prepare reloc. name = %s\n", name);
-                add_reloc(name, &line->y64bin);
+                if (add_reloc(name, &line->y64bin) == -1) {
+                    line->type = TYPE_ERR;
+                    goto _CLEAN_UP;
+                }
             }
         }
 
@@ -1020,6 +1084,8 @@ int relocate(void) {
         }
         else {
             log("Can't find tried relocate of %s\n", rtmp->name);
+            err_print("Unknown symbol:'%s'", rtmp->name);
+            return -1;
         }
 
         /* next */
