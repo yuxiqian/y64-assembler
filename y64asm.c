@@ -916,7 +916,7 @@ type_t parse_line(line_t* line) {
             ++vmaddr;
         }
         binary.addr = vmaddr;
-        line->type  = TYPE_COMM;
+        line->type  = TYPE_INS;
     } break;
     }
 
