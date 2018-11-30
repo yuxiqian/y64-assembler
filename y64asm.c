@@ -9,7 +9,7 @@ line_t* line_head = NULL;
 line_t* line_tail = NULL;
 int     lineno    = 0;
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define err_print(_s, _a...)       \
     do {                           \
@@ -543,9 +543,17 @@ type_t parse_line(line_t* line) {
         line->type   = TYPE_INS;
         line->y64bin = binary;
 
-        if (strlen(separator + 1) < 3) {
+        unsigned counter = 0;
+        while (*org_ins_word != '\0') {
+            if (*org_ins_word != ' ' && *org_ins_word != '\t') {
+                ++counter;
+            }
+            ++org_ins_word;
+        }
+        if (counter < 3) {
             return TYPE_COMM;
         }
+
         ins_word = separator + 1;
         while (*ins_word == ' ' || *ins_word == '\t') {
             ++ins_word;
@@ -1052,7 +1060,6 @@ int binfile(FILE* out) {
             return -1;
         }
 
-    _TURN_NEXT:;
         // log("addr = %ld, bytes = %d\n", tmp->y64bin.addr, tmp->y64bin.bytes);
 
         last_addr = tmp->y64bin.addr + tmp->y64bin.bytes;
